@@ -91,10 +91,26 @@ public class McpSession implements Closeable {
      * stderrThread.start();
      * }</pre>
      */
-    public void start() {
-        // TODO: 实现子进程启动
-        throw new UnsupportedOperationException("TODO: 启动 MCP Server 子进程");
-    }
+    public void start()throws IOException{
+       ProcessBuilder pb =new ProcessBuilder(command);
+       pb.redirectErrorStream(false);
+       this.process=pb.start();
+       this.writer = new BufferedWriter(new OutputStreamWriter(process.getOutputStream()));
+       this.reader = new BufferedReader(new InputStreamReader(process.getInputStream()));
+        Thread stderrThread = new Thread(() -> {
+        try (BufferedReader errReader = new BufferedReader(
+                new InputStreamReader(process.getErrorStream()))) {
+            String line;
+            while ((line = errReader.readLine()) != null) {
+                log.debug("[{}] {}", serverName, line);
+            }
+        } catch (IOException ignored) {
+            //stderr 流关闭，线程结束
+        }
+    });
+    stderrThread.setDaemon(true);
+    stderrThread.start();
+}
 
     // ==========================================================
     // 消息收发（你来写）
@@ -121,9 +137,17 @@ public class McpSession implements Closeable {
      * @param message 请求消息（method 和 params 已设置）
      * @return 响应消息
      */
-    public JsonRpcMessage send(JsonRpcMessage message) {
-        // TODO: 实现同步消息收发
-        throw new UnsupportedOperationException("TODO: 实现 JSON-RPC 消息收发");
+    public JsonRpcMessage send(JsonRpcMessage message) throws IOException{
+      String Id = String.valueOf(requestIdCounter.getAndIncrement());
+      JsonRpcMessage request = JsonRpcMessage.request(message.getMethod(),message.getParams(),Id);
+      writer.write(codec.encode(request));
+      writer.newLine();
+      writer.flush();
+      String responseLine = reader.readLine();
+      if(responseLine == null){
+        throw new IOException("子进程退出"+serverName);
+      }
+      return codec.decode(responseLine);
     }
 
     /**
@@ -141,10 +165,37 @@ public class McpSession implements Closeable {
      *
      * @return 工具定义列表
      */
-    public List<ToolDefinition> fetchTools() {
-        // TODO: 发送 tools/list 请求，解析响应中的 tools 数组
-        throw new UnsupportedOperationException("TODO: 实现 fetchTools");
-    }
+    public List<ToolDefinition> fetchTools()throws IOException {
+      JsonRpcMessage request = JsonRpcMessage.request(
+        "tools/list",
+        null,
+        String.valueOf(requestIdCounter.getAndIncrement())
+      );
+      JsonRpcMessage response = send(request);
+       if(response.isError()){
+        throw new RuntimeException("获取工具列表失败 [" + serverName + "]: " + response.getError().getMessage());}
+
+        JsonNode toolsNode = response.getResult().get("tools");
+        if(toolsNode == null|| !toolsNode.isArray()){
+                    throw new RuntimeException(
+            "tools/list 响应格式异常 [" + serverName + "]: 缺少 tools 数组"
+        );
+        }
+        List<ToolDefinition> result = new ArrayList<>();
+        for(JsonNode toolNode :toolsNode){
+            ToolDefinition td = ToolDefinition.builder()
+            .name(toolNode.get("name").asText())
+            .description(toolNode.get("description").asText())
+            .parameters(toolNode.get("inputSchema"))
+            .build();
+            result.add(td);
+        }
+        this.tools = result;
+        return result;
+
+        
+       }
+
 
     /**
      * 调用工具（带缓存）。
@@ -153,7 +204,7 @@ public class McpSession implements Closeable {
      * @param arguments 参数 JSON
      * @return 执行结果 JSON
      */
-    public JsonNode callTool(String toolName, JsonNode arguments) {
+    public JsonNode callTool(String toolName, JsonNode arguments) throws IOException{
         ObjectMapper mapper = new ObjectMapper();
         var params = mapper.createObjectNode();
         params.put("name", toolName);
@@ -186,8 +237,34 @@ public class McpSession implements Closeable {
      */
     @Override
     public void close() {
-        // TODO: 实现资源清理
-        throw new UnsupportedOperationException("TODO: 实现 McpSession 清理");
+       if(writer!=null){
+        try {
+            writer.close();
+        } catch (IOException e) {
+          log.warn("关闭 writer 失败 [{}]", serverName, e);
+        }
+       }
+       if(reader!=null){
+        try {
+       reader.close();     
+        } catch (IOException e) {
+            log.warn("关闭 writer 失败 [{}]", serverName, e);
+        }
+       }
+       if(process!=null &&process.isAlive()){
+        process.destroy();
+        try {
+            boolean terminsted = process.waitFor(5, java.util.concurrent.TimeUnit.SECONDS);
+            if(!terminsted){
+                log.warn("子进程未响应 destroy,强制终止 [{}]", serverName);
+                process.destroyForcibly();
+            }
+        }  catch (InterruptedException e) {
+            process.destroyForcibly();
+            Thread.currentThread().interrupt();
+        }
+       }
+       log.info("McpSession 已关闭 [{}]", serverName);
     }
 
     // ===== getters =====
