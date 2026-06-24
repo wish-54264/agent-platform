@@ -1,0 +1,165 @@
+package com.agent.core;
+
+import com.agent.common.model.Message;
+import com.agent.common.model.ToolCall;
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import lombok.extern.slf4j.Slf4j;
+
+import javax.sql.DataSource;
+import java.sql.*;
+import java.time.Instant;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.UUID;
+
+/**
+ * 会话持久化存储 — 基于 PostgreSQL。
+ * <p>
+ * 管理 conversations 和 messages 两张表。
+ *
+ * <h3>你需要实现的内容：</h3>
+ * <ol>
+ *   <li>{@link #createConversation(String, String)} — 创建新会话</li>
+ *   <li>{@link #load(String)} — 加载会话的全部消息历史</li>
+ *   <li>{@link #save(String, List)} — 保存消息历史</li>
+ *   <li>{@link #listConversations()} — 列出所有会话</li>
+ * </ol>
+ *
+ * <h3>实现提示：</h3>
+ * 使用 Spring JdbcTemplate 或原始 JDBC。
+ * tool_calls 字段以 JSONB 格式存储。
+ */
+@Slf4j
+public class ConversationStore {
+
+    private final DataSource dataSource;
+    private final ObjectMapper objectMapper;
+
+    public ConversationStore(DataSource dataSource, ObjectMapper objectMapper) {
+        this.dataSource = dataSource;
+        this.objectMapper = objectMapper;
+    }
+
+    /**
+     * TODO: 创建新会话。
+     *
+     * <pre>{@code
+     * INSERT INTO conversations (id, title, model) VALUES (?, ?, ?)
+     * }</pre>
+     *
+     * @param title 会话标题（初始可为 "新对话"）
+     * @param model 使用的模型名称
+     * @return 会话 ID
+     */
+    public String createConversation(String title, String model) {
+        // TODO: 插入 conversations 表，返回 UUID
+        throw new UnsupportedOperationException("TODO: 创建会话");
+    }
+
+    /**
+     * TODO: 加载会话的全部消息历史。
+     *
+     * <pre>{@code
+     * SELECT role, content, tool_calls, tool_call_id
+     * FROM messages WHERE conversation_id = ? ORDER BY created_at ASC
+     * }</pre>
+     *
+     * <p>需要将数据库行转换为 {@link Message} 对象，
+     * 特别处理 tool_calls JSONB → List&lt;ToolCall&gt; 的转换。
+     *
+     * @param conversationId 会话 ID
+     * @return 消息列表（按时间升序）
+     */
+    public List<Message> load(String conversationId) {
+        // TODO: 查询 messages 表，反序列化为 Message 列表
+        throw new UnsupportedOperationException("TODO: 加载历史消息");
+    }
+
+    /**
+     * TODO: 保存会话的全部消息历史。
+     *
+     * <h3>策略：全量覆盖</h3>
+     * 先 DELETE 旧消息，再批量 INSERT 新消息。
+     * 简单可靠，适合当前阶段。后续可以改为增量追加。
+     *
+     * <pre>{@code
+     * DELETE FROM messages WHERE conversation_id = ?
+     *
+     * // 批量插入
+     * INSERT INTO messages (conversation_id, role, content, tool_calls, tool_call_id, token_count)
+     * VALUES (?, ?, ?, ?, ?, ?)
+     * }</pre>
+     *
+     * @param conversationId 会话 ID
+     * @param messages       完整消息列表
+     */
+    public void save(String conversationId, List<Message> messages) {
+        // TODO: 先清空旧消息，再批量插入新消息
+        throw new UnsupportedOperationException("TODO: 保存历史消息");
+    }
+
+    /**
+     * TODO: 列出所有会话（概要信息）。
+     *
+     * <pre>{@code
+     * SELECT id, title, model, created_at, updated_at
+     * FROM conversations ORDER BY updated_at DESC
+     * }</pre>
+     */
+    public List<ConversationSummary> listConversations() {
+        // TODO: 查询 conversations 表
+        throw new UnsupportedOperationException("TODO: 列出会话");
+    }
+
+    /**
+     * TODO: 删除会话。
+     *
+     * <pre>{@code
+     * DELETE FROM conversations WHERE id = ?  -- CASCADE 会删除关联消息
+     * }</pre>
+     */
+    public void deleteConversation(String conversationId) {
+        // TODO: 删除会话
+        throw new UnsupportedOperationException("TODO: 删除会话");
+    }
+
+    // ===== 辅助方法 =====
+
+    /**
+     * 将 ToolCall 列表序列化为 JSONB 字符串。
+     */
+    private String serializeToolCalls(List<ToolCall> toolCalls) {
+        if (toolCalls == null || toolCalls.isEmpty()) return null;
+        try {
+            return objectMapper.writeValueAsString(toolCalls);
+        } catch (JsonProcessingException e) {
+            log.error("序列化 toolCalls 失败", e);
+            return null;
+        }
+    }
+
+    /**
+     * 将 JSONB 字符串反序列化为 ToolCall 列表。
+     */
+    private List<ToolCall> deserializeToolCalls(String json) {
+        if (json == null || json.isBlank()) return null;
+        try {
+            return objectMapper.readValue(json,
+                    objectMapper.getTypeFactory().constructCollectionType(List.class, ToolCall.class));
+        } catch (JsonProcessingException e) {
+            log.error("反序列化 toolCalls 失败", e);
+            return null;
+        }
+    }
+
+    // ===== 数据类型 =====
+
+    public record ConversationSummary(
+            String id,
+            String title,
+            String model,
+            Instant createdAt,
+            Instant updatedAt
+    ) {}
+}

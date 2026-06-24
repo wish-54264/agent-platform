@@ -1,0 +1,37 @@
+version: "3.9"
+
+services:
+  # ===== PostgreSQL 16 + PGVector 扩展 =====
+  postgres:
+    image: pgvector/pgvector:pg16
+    container_name: agent-postgres
+    environment:
+      POSTGRES_DB: agent_platform
+      POSTGRES_USER: agent
+      POSTGRES_PASSWORD: agent123
+      POSTGRES_HOST_AUTH_METHOD: scram-sha-256
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./scripts/init-db.sql:/docker-entrypoint-initdb.d/init-db.sql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U agent -d agent_platform"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  # ===== Redis (流式背压 + 可选缓存) =====
+  redis:
+    image: redis:7-alpine
+    container_name: agent-redis
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+volumes:
+  pgdata:

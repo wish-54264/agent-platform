@@ -1,0 +1,60 @@
+# ============================================
+# Agent Platform 配置文件
+# ============================================
+
+server:
+  port: 8080
+
+spring:
+  application:
+    name: agent-platform
+
+  # PostgreSQL 数据源（docker-compose 默认配置）
+  datasource:
+    url: jdbc:postgresql://localhost:5432/agent_platform
+    username: agent
+    password: agent123
+    driver-class-name: org.postgresql.Driver
+
+  # Redis（流式背压控制）
+  data:
+    redis:
+      host: localhost
+      port: 6379
+
+  # 文件上传限制
+  servlet:
+    multipart:
+      max-file-size: 50MB
+      max-request-size: 50MB
+  codec:
+    max-in-memory-size: 10MB
+
+# ============================================
+# Agent 配置
+# ============================================
+agent:
+  llm:
+    # LLM 提供商: bailian / ollama
+    provider: ${AGENT_LLM_PROVIDER:ollama}
+
+    # 阿里云百炼配置
+    bailian:
+      api-key: ${BAILIAN_API_KEY:}
+      chat-model: ${BAILIAN_CHAT_MODEL:qwen-plus}
+      embedding-model: ${BAILIAN_EMBEDDING_MODEL:text-embedding-v3}
+      rerank-model: ${BAILIAN_RERANK_MODEL:gte-rerank}
+
+    # Ollama 本地模型配置
+    ollama:
+      model: ${OLLAMA_MODEL:qwen2.5:7b}
+
+# ============================================
+# 日志
+# ============================================
+logging:
+  level:
+    com.agent: DEBUG
+    com.agent.mcp: DEBUG
+    com.agent.rag: DEBUG
+    org.springframework.web.reactive: INFO

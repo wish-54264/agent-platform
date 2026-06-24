@@ -1,0 +1,30 @@
+# ===== Maven =====
+target/
+*.class
+*.jar
+*.war
+!.mvn/wrapper/maven-wrapper.jar
+
+# ===== IDE =====
+.idea/
+*.iml
+.vscode/
+.project
+.classpath
+.settings/
+
+# ===== OS =====
+.DS_Store
+Thumbs.db
+
+# ===== Log =====
+*.log
+logs/
+
+# ===== Env =====
+.env
+.env.local
+application-local.yml
+
+# ===== Docker =====
+pgdata/

@@ -1,0 +1,53 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <parent>
+        <groupId>com.agent</groupId>
+        <artifactId>agent-platform</artifactId>
+        <version>1.0.0-SNAPSHOT</version>
+    </parent>
+
+    <artifactId>agent-core</artifactId>
+    <name>Agent Core Engine</name>
+    <description>FC 原生 Agent 引擎 — ReAct 循环 + 会话管理 + 工具编排</description>
+
+    <dependencies>
+        <dependency>
+            <groupId>com.agent</groupId>
+            <artifactId>agent-common</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>com.agent</groupId>
+            <artifactId>agent-llm</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>com.agent</groupId>
+            <artifactId>agent-mcp</artifactId>
+        </dependency>
+
+        <!-- Spring (依赖注入 + 事务管理) -->
+        <dependency>
+            <groupId>org.springframework</groupId>
+            <artifactId>spring-context</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework</groupId>
+            <artifactId>spring-jdbc</artifactId>
+        </dependency>
+
+        <!-- Reactor -->
+        <dependency>
+            <groupId>io.projectreactor</groupId>
+            <artifactId>reactor-core</artifactId>
+        </dependency>
+
+        <!-- PostgreSQL JDBC (会话持久化) -->
+        <dependency>
+            <groupId>org.postgresql</groupId>
+            <artifactId>postgresql</artifactId>
+        </dependency>
+    </dependencies>
+</project>
