@@ -89,8 +89,16 @@ public class ChunkSplitter {
      * @return 切分后的块列表
      */
     public List<Chunk> split(String text) {
-        // TODO: 实现固定长度 + 重叠滑动窗口切分
-        throw new UnsupportedOperationException("TODO: 实现文本切分");
+        List<Chunk> chunks = new ArrayList<>();
+        int step = chunkSize - overlap;
+        int index = 0;
+        for(int start = 0; start<text.length();start+=step){
+            int end = Math.min(start+chunkSize,text.length());
+            String chunkText = text.substring(start,end);
+            chunks.add(new Chunk(index,chunkText,start,end));
+            index++;
+        }
+        return chunks;
     }
 
     /**
@@ -100,10 +108,44 @@ public class ChunkSplitter {
      * 超长的段落再进行固定长度切分。这样能保持段落的语义完整性。
      */
     public List<Chunk> splitByParagraph(String text) {
-        // TODO (可选): 实现按段落切分策略
-        // 1. 用 PARAGRAPH_SEP 拆分
-        // 2. 对于超过 chunkSize 的段落，走固定长度切分
-        // 3. 对于较短段落，合并直到接近 chunkSize
-        throw new UnsupportedOperationException("TODO (可选): 按段落切分");
-    }
-}
+       List<Chunk> chunks = new ArrayList<>();
+       int index= 0;
+       String[] paragraphs= PARAGRAPH_SEP.split(text);
+       StringBuilder buffer = new StringBuilder();
+       int bufferStart = 0;
+       for(String para: paragraphs){
+        if(para.isBlank()){
+            continue;
+        }
+        if(para.length()>chunkSize){
+            if(!buffer.isEmpty()){
+                chunks.add(new Chunk(index++,buffer.toString(),bufferStart,
+            bufferStart+buffer.length()));
+            buffer.setLength(0);
+            }
+           for(Chunk sub :split(para)){
+            chunks.add(new Chunk(index++, sub.text(),
+             sub.startChar(),sub.endChar()));
+           }
+        }else if (buffer.length() + para.length() <= chunkSize) {
+            // 2b. 短段落塞进缓冲区，能塞下就继续攒
+            if (buffer.isEmpty()) {
+                bufferStart = text.indexOf(para, bufferStart);
+            }
+            if (!buffer.isEmpty()) buffer.append("\n\n");
+            buffer.append(para);
+            }
+            else{
+                chunks.add(new Chunk(index++,buffer.toString(),bufferStart,
+            bufferStart+buffer.length()));
+            bufferStart = text.indexOf(para,bufferStart);
+            buffer.setLength(0);
+            buffer.append(para);
+            }
+        }
+        if(!buffer.isEmpty()){
+            chunks.add(new Chunk(index++, buffer.toString(), bufferStart,bufferStart+buffer.length()));
+        }
+        return chunks;
+       }
+

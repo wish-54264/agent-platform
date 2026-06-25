@@ -155,13 +155,32 @@ public class BailianLlmService implements LlmService {
      * @return 向量 float[]（text-embedding-v3: 1536 维）
      */
     @Override
-    public float[] embed(String text) {
-        // TODO: 实现文本向量化
-        throw new UnsupportedOperationException("TODO: 实现文本向量化");
+    public float[] embed(String text){
+        ObjectNode body = objectMapper.createObjectNode();
+        body.put("model",embeddingModel);
+        body.put("input",text);
+        try {
+            String responseJson = webClient.post()
+            .uri(EMBED_PATH)
+            .bodyValue(body)
+            .retrieve()
+            .bodyToMono(String.class)
+            .block();
+            JsonNode root = objectMapper.readTree(responseJson);
+            JsonNode embeddingNode = root.path("data").get(0).path("embedding");
+            float[] vector = new float[embeddingNode.size()];
+            for (int i = 0; i < embeddingNode.size(); i++) {
+                vector[i] = (float) embeddingNode.get(i).asDouble();
+            }
+            return vector;
+        } catch (Exception e) {
+            log.error("Embedding 失败",e);
+            throw new RuntimeException("文本向量化失败: " + e.getMessage(), e);
+        }
     }
 
     // ==========================================================
-    // 以下是辅助方法，你可以按需使用/修改
+    // 以下是辅助方法
     // ==========================================================
 
     /**
