@@ -97,20 +97,16 @@ public class BailianLlmService implements LlmService {
      */
     @Override
     public Flux<ChatChunk> chatStream(List<Message> messages, List<ToolDefinition> toolDefinitions) {
-        // TODO: 实现流式 FC 调用
-        //
-        // 伪代码：
-        // ObjectNode body = buildRequestBody(messages, toolDefinitions, true);
-        // return webClient.post()
-        //     .uri(CHAT_PATH)
-        //     .bodyValue(body)
-        //     .retrieve()
-        //     .bodyToFlux(String.class)
-        //     .filter(line -> line.startsWith("data: ") && !line.equals("data: [DONE]"))
-        //     .map(this::parseSSELine)
-        //     .flatMap(this::aggregateToolCalls);  // 处理增量拼接
-        //
-        throw new UnsupportedOperationException("TODO: 实现流式 FC 调用");
+      ObjectNode body = buildRequestBody(messages, toolDefinitions, true);
+      return webClient.post()
+      .uri(CHAT_PATH)
+      .bodyValue(body)
+      .retrieve()
+      .bodyToFlux(String.class)
+      .filter(line->line.startsWith("data:")&&!line.equals("data:[DONE]"))
+      .map(this::parseSSELine)
+      .transform(this::aggregateToolCalls);
+
     }
 
     // ==========================================================
@@ -125,8 +121,47 @@ public class BailianLlmService implements LlmService {
      */
     @Override
     public ChatResponse chatSync(List<Message> messages, List<ToolDefinition> toolDefinitions) {
-        // TODO: 实现同步调用
-        throw new UnsupportedOperationException("TODO: 实现同步 FC 调用");
+        // 1. 构建请求体（stream=false，百炼返回完整 JSON）
+        ObjectNode body = buildRequestBody(messages, toolDefinitions, false);
+
+        try {
+            // 2. 发送 POST，同步阻塞等完整响应
+            String responseJson = webClient.post()
+                    .uri(CHAT_PATH)
+                    .bodyValue(body)
+                    .retrieve()
+                    .bodyToMono(String.class)
+                    .block();
+
+            // 3. 解析响应
+            // 非流式响应格式: {"choices":[{"message":{"role":"assistant","content":"...","tool_calls":[...]},"finish_reason":"stop"}]}
+            JsonNode root = objectMapper.readTree(responseJson);
+            JsonNode message = root.path("choices").get(0).path("message");
+
+            // 文本内容
+            String content = message.has("content") && !message.get("content").isNull()
+                    ? message.get("content").asText() : null;
+
+            // 工具调用列表
+            List<ToolCall> toolCalls = new java.util.ArrayList<>();
+            if (message.has("tool_calls") && !message.get("tool_calls").isNull()) {
+                for (JsonNode tcNode : message.get("tool_calls")) {
+                    ToolCall tc = ToolCall.builder()
+                            .id(tcNode.get("id").asText())
+                            .name(tcNode.path("function").get("name").asText())
+                            .arguments(objectMapper.readTree(
+                                    tcNode.path("function").get("arguments").asText()))
+                            .build();
+                    toolCalls.add(tc);
+                }
+            }
+
+            return new ChatResponse(content, toolCalls, null);
+
+        } catch (Exception e) {
+            log.error("同步调用失败", e);
+            throw new RuntimeException("百炼同步调用失败: " + e.getMessage(), e);
+        }
     }
 
     // ==========================================================
@@ -258,13 +293,49 @@ public class BailianLlmService implements LlmService {
      * @return ChatChunk（可能为 null，表示应跳过此行）
      */
     private ChatChunk parseSSELine(String sseLine) {
-        // TODO: 解析 SSE 行，这是一个关键方法。
-        // 提示：
-        // 1. 去掉 "data: " 前缀
-        // 2. JSON 解析得到 choices[0].delta
-        // 3. 判断 delta 中是 content 还是 tool_calls
-        // 4. 返回对应的 ChatChunk
-        throw new UnsupportedOperationException("TODO: 解析 SSE 行");
+        String json = sseLine.substring(6);
+      try {
+        JsonNode root = objectMapper.readTree(json);
+        JsonNode choice = root.path("choices").get(0);
+        JsonNode delta = choice.path("delta");
+        String finishReason = choice.path("finish_reason").asText(null);
+
+        if (delta.has("content") && !delta.get("content").isNull()) {
+            return ChatChunk.builder()
+                    .type(ChatChunk.ChunkType.CONTENT)
+                    .content(delta.get("content").asText())
+                    .finishReason(finishReason)
+                    .build();
+        }
+
+        if (delta.has("tool_calls")) {
+            JsonNode tcNode = delta.get("tool_calls").get(0);
+            int index = tcNode.has("index")?tcNode.get("Index").asInt():0;
+            ChatChunk.ChatChunkBuilder builder = ChatChunk.builder().finishReason(finishReason);
+            if(tcNode.has("id")&&!tcNode.get("id").isNull()){
+                builder.toolCallId(tcNode.get("id").asText());
+            }
+            JsonNode func = tcNode.path("function");
+            if(func.has("name")&&!func.get("name").isNull()){
+                builder.argumentsDelta(func.get("arguments").asText());
+            }
+            if(func.has("arguments")&&!func.get("arguments").isNull()){
+                builder.argumentsDelta(func.get("arguments").asText());
+            }
+            return builder.build();
+        }
+
+        return ChatChunk.builder()
+                .type(ChatChunk.ChunkType.FINISH)
+                .finishReason(finishReason)
+                .build();
+
+    } catch (Exception e) {
+        log.error("SSE 解析失败: {}", json, e);
+        return ChatChunk.builder()
+                .type(ChatChunk.ChunkType.FINISH)
+                .build();
+    }
     }
 
     /**
@@ -276,15 +347,55 @@ public class BailianLlmService implements LlmService {
      * chunk2: 北京
      * chunk3: "}
      * </pre>
-     * 需要用一个 Map<String, StringBuilder> 跟踪每个 tool_call_id 的参数字符串拼接进度。
+
      */
-    private Flux<ChatChunk> aggregateToolCalls(Flux<ChatChunk> rawChunks) {
-        // TODO: 实现 Tool Call 增量聚合。
-        // 提示：
-        // 1. 维护 Map<index, ToolCallAggregation> 状态
-        // 2. TOOL_CALL_START → 记录 id 和 name
-        // 3. TOOL_CALL_DELTA → 追加 argumentsDelta
-        // 4. TOOL_CALL_END → 解析完整 JSON，构建 ToolCall 对象
-        throw new UnsupportedOperationException("TODO: 实现 Tool Call 增量聚合");
-    }
+    private ToolCallBuilder currentBuilder;
+
+private static class ToolCallBuilder {
+    String id;
+    String name;
+    StringBuilder arguments = new StringBuilder();
 }
+    private Flux<ChatChunk> aggregateToolCalls(Flux<ChatChunk> rawChunks) {
+        return rawChunks.handle((chunk,sink)->{
+            String toolCallId = chunk.getToolCallId();
+            String toolName = chunk.getToolName();
+            String argsDelta = chunk.getArgumentsDelta();
+
+      if(toolCallId!=null||toolName!=null||argsDelta!=null){
+       if (currentBuilder == null) {
+                currentBuilder = new ToolCallBuilder();
+            }
+            if (toolCallId != null) currentBuilder.id = toolCallId;
+            if (toolName != null) currentBuilder.name = toolName;
+            if (argsDelta != null) currentBuilder.arguments.append(argsDelta);
+     if ("tool_calls".equals(chunk.getFinishReason())) {
+               try {
+        ToolCall complete = ToolCall.builder()
+                .id(currentBuilder.id)
+                .name(currentBuilder.name)
+                .arguments(objectMapper.readTree(currentBuilder.arguments.toString()))
+                .build();
+
+        sink.next(ChatChunk.builder()
+                .type(ChatChunk.ChunkType.TOOL_CALL_END)
+                .allToolCalls(List.of(complete))
+                .finishReason(chunk.getFinishReason())
+                .build());
+    } catch (Exception e) {
+        log.error("ToolCall 参数解析失败: {}", currentBuilder.arguments, e);
+    }
+                currentBuilder = null;  // 清空，准备下一轮
+            }
+            return;}
+    if (chunk.getType() == ChatChunk.ChunkType.FINISH) {
+            currentBuilder = null;
+            sink.next(chunk);
+            return;
+        }
+
+        // 3. CONTENT → 直接透传
+        sink.next(chunk);
+    
+    });
+}}
