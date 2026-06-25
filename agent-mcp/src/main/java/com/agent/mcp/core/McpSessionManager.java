@@ -37,8 +37,8 @@ public class McpSessionManager {
      * @param command    启动命令（如 {"java", "-cp", "xxx.jar", "com.agent.mcp.servers.DatabaseMcpServer"}）
      */
     public void registerServer(String serverName, String... command) {
-        // TODO: 保存注册信息，等 initAll() 时统一启动
-        throw new UnsupportedOperationException("TODO: 实现 registerServer");
+        pendingServers.put(serverName,command);
+        log.info("注册MCP Server:{}",serverName);
     }
 
     /**
@@ -48,8 +48,19 @@ public class McpSessionManager {
      * 如果某个 Server 启动失败，记录日志但不阻塞其他 Server 的启动。
      */
     public void initAll() {
-        // TODO: 遍历 pendingServers，创建 McpSession，调用 start() + fetchTools()
-        throw new UnsupportedOperationException("TODO: 实现 initAll");
+      for(var entry: pendingServers.entrySet()){
+        String name = entry.getKey();
+        String[] cmd = entry.getValue();
+        try {
+            McpSession session = new McpSession(name, cmd);
+            session.start();
+            session.fetchTools();
+            sessions.put(name, session);
+            log.info("MCP Server 启动成功: {} ({} 个工具)", name, session.fetchTools().size());
+        } catch (Exception e) {
+            log.error("MCP Server 启动失败: {}", name, e);
+        }
+      }
     }
 
     /**
@@ -60,8 +71,11 @@ public class McpSessionManager {
      * @throws IllegalStateException 如果 Server 未找到或未启动
      */
     public McpSession getSession(String serverName) {
-        // TODO: 从 sessions Map 中获取，不存在则抛异常
-        throw new UnsupportedOperationException("TODO: 实现 getSession");
+     McpSession session = sessions.get(serverName);
+     if(session==null){
+         throw new IllegalStateException("MCP Server 未找到或未启动: " + serverName);
+     }
+     return session;
     }
 
     /**
@@ -77,7 +91,14 @@ public class McpSessionManager {
      * <p>在 Spring Boot 关闭时调用（@PreDestroy）。
      */
     public void shutdownAll() {
-        // TODO: 遍历所有 session 调用 close()
-        throw new UnsupportedOperationException("TODO: 实现 shutdownAll");
+        for(var entry : sessions.entrySet()){
+            try {
+                entry.getValue().close();
+                 log.info("MCP Server 已关闭: {}", entry.getKey());
+            } catch (Exception e) {
+                 log.error("MCP Server 关闭失败: {}", entry.getKey(), e);
+            }
+        }
+        sessions.clear();
     }
 }
