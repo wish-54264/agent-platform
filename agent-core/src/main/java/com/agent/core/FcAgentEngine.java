@@ -14,6 +14,7 @@ import reactor.core.publisher.Mono;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.atomic.AtomicInteger;
 
 /**
@@ -74,9 +75,6 @@ public class FcAgentEngine {
         this.promptBuilder = new PromptBuilder();
     }
 
-    // ==========================================================
-    // 流式 Agent 循环（核心，你来写）
-    // ==========================================================
 
     /**
      * TODO: 流式执行 Agent 循环。
@@ -123,79 +121,63 @@ public class FcAgentEngine {
      * @return AgentEvent 事件流
      */
     public Flux<AgentEvent> executeStream(String userMessage, String conversationId) {
-        // TODO: 实现流式 Agent 循环
-        //
-        // ===== 伪代码框架 =====
-        //
-        // return Flux.defer(() -> {
-        //     List<Message> history = conversationStore.load(conversationId);
-        //     history.add(Message.user(userMessage));
-        //     return executeLoop(history, new AtomicInteger(1), conversationId);
-        // });
-        //
-        // ---
-        //
-        // private Flux<AgentEvent> executeLoop(List<Message> history,
-        //                                       AtomicInteger round,
-        //                                       String conversationId) {
-        //     if (round.get() > MAX_ROUNDS) {
-        //         return Flux.just(AgentEvent.error(round.get(), "超过最大循环轮次"));
-        //     }
-        //
-        //     List<ToolDefinition> tools = toolRegistry.getToolDefinitions();
-        //     List<Message> messages = buildMessagesList(history, tools);
-        //
-        //     return llmService.chatStream(messages, tools)
-        //         .collectList()  // 先收集所有 chunk（或使用更复杂的 flatMap）
-        //         .flatMapMany(chunks -> {
-        //             // 聚合：区分 content 和 tool_calls
-        //             String content = aggregateContent(chunks);
-        //             List<ToolCall> toolCalls = aggregateToolCalls(chunks);
-        //             String finishReason = getFinishReason(chunks);
-        //
-        //             Flux<AgentEvent> currentRoundEvents = Flux.empty();
-        //
-        //             // 推送 content 作为 thinking 事件
-        //             if (content != null && !content.isEmpty()) {
-        //                 currentRoundEvents = Flux.concat(currentRoundEvents,
-        //                     Flux.just(AgentEvent.thinking(round.get(), content)));
-        //             }
-        //
-        //             // 如果有工具调用 → 执行工具 → 递归下一轮
-        //             if (!toolCalls.isEmpty()) {
-        //                 return Flux.concat(
-        //                     currentRoundEvents,
-        //                     Flux.fromIterable(toolCalls).flatMap(tc -> {
-        //                         // 推送 tool_call 事件
-        //                         Flux<AgentEvent> callEvent = Flux.just(
-        //                             AgentEvent.toolCall(round.get(), tc.getId(), tc.getName(), tc.getArguments()));
-        //                         // 执行工具 → 推送结果
-        //                         return Flux.concat(callEvent, executeAndPushResult(tc, round));
-        //                     }),
-        //                     // 追加历史 → 递归
-        //                     Flux.defer(() -> {
-        //                         history.add(Message.assistantWithToolCalls(toolCalls));
-        //                         for (ToolCall tc : toolCalls) {
-        //                             history.add(Message.tool(tc.getId(), tc.getName(), toolResultCache.get(tc.getId())));
-        //                         }
-        //                         return executeLoop(history, new AtomicInteger(round.get() + 1), conversationId);
-        //                     })
-        //                 );
-        //             }
-        //
-        //             // 没有工具调用 → 最终回答
-        //             history.add(Message.assistant(content));
-        //             conversationStore.save(conversationId, history);
-        //             return Flux.concat(
-        //                 currentRoundEvents,
-        //                 Flux.just(AgentEvent.answer(round.get(), content)),
-        //                 Flux.just(AgentEvent.done(round.get(), 0))
-        //             );
-        //         });
-        // }
-        //
-        throw new UnsupportedOperationException("TODO: 实现 Agent 循环引擎 — 这是整个项目的核心！");
+        
+            return Flux.defer(() -> {
+            List<Message> history = conversationStore.load(conversationId);
+            history.add(Message.user(userMessage));
+            return executeLoop(history,new AtomicInteger(1),conversationId);
+        });
+
+}
+private Flux<AgentEvent> executeLoop(List<Message> history,
+                                                AtomicInteger round,
+                                                String conversationId){
+if(round.get()> MAX_ROUNDS){
+    return Flux.just(AgentEvent.error(round.get(),"超出最大轮("+MAX_ROUNDS+")"));
+}
+List<ToolDefinition> tools = toolRegistry.getToolDefinitions();
+List<Message> messages = buildMessagesList(history,tools);
+//调用llm收集chunk
+return llmService.chatStream(messages, tools)
+.collectList().flatMapMany(chunks->{
+    //聚合chunk
+    String content =aggregateContent(chunks);
+    List<ToolCall> toolCalls = aggregateToolCalls(chunks);
+    //推送thinking
+    Flux<AgentEvent> thinkingEvent = (content != null && !content.isEmpty())
+    ?Flux.just(AgentEvent.thinking(round.get(),content)):Flux.empty();
+    //工具调用->执行->递归
+    if(!toolCalls.isEmpty()){
+        return Flux.concat(thinkingEvent,
+            Flux.fromIterable(toolCalls).flatMap(tc -> 
+                Flux.concat(
+                    Flux.just(AgentEvent.toolCall(round.get(), tc.getId(), tc.getName(), tc.getArguments())),
+                    executeAndPushResult(tc, round)
+                )
+
+
+            ),
+            Flux.defer(()-> {
+                history.add(Message.assistantWithToolCalls(toolCalls));
+                for(ToolCall tc : toolCalls){
+                    history.add(Message.tool(tc.getId(),tc.getName(),
+                            toolResults.getOrDefault(tc.getId(),"{}")));
+                }
+                return executeLoop(history, new AtomicInteger(round.get() + 1), conversationId);
+            })
+        );
     }
+    history.add(Message.assistant(content));
+    conversationStore.save(conversationId,history);
+    return Flux.concat(
+        thinkingEvent,
+        Flux.just(AgentEvent.answer(round.get(),content)),
+        Flux.just(AgentEvent.done(round.get(),0))
+    );
+});
+
+
+}
 
     // ==========================================================
     // 工具执行（你来写）
@@ -212,16 +194,33 @@ public class FcAgentEngine {
      * @param round    当前轮次
      * @return TOOL_RESULT 或 ERROR 事件
      */
+    private final Map<String,String> toolResults = new java.util.HashMap<>();
     private Flux<AgentEvent> executeAndPushResult(ToolCall toolCall, AtomicInteger round) {
-        // TODO: 实现工具执行 + 结果推送
-        // try {
-        //     JsonNode result = toolRegistry.execute(toolCall.getName(), toolCall.getArguments());
-        //     return Flux.just(AgentEvent.toolResult(round.get(), toolCall.getId(), true, result));
-        // } catch (Exception e) {
-        //     return Flux.just(AgentEvent.toolResult(round.get(), toolCall.getId(), false, e.getMessage()));
-        // }
-        throw new UnsupportedOperationException("TODO: 实现工具执行");
+      try {
+        JsonNode result = toolRegistry.execute(toolCall.getName(), toolCall.getArguments());
+        toolResults.put(toolCall.getId(),result.toString());
+        return Flux.just(AgentEvent.toolResult(round.get(),toolCall.getId(),true,result));
+      } catch (Exception e) {
+        log.error("工具执行失败: {}", toolCall.getName(), e);
+        String errorMsg = "工具执行失败: " + e.getMessage();
+        toolResults.put(toolCall.getId(), errorMsg);
+        return Flux.just(AgentEvent.toolResult(round.get(), toolCall.getId(), false, errorMsg));
+      }
     }
+    private String aggregateContent(List<ChatChunk> chunks) {
+    return chunks.stream()
+            .filter(c -> c.getType() == ChatChunk.ChunkType.CONTENT)
+            .map(ChatChunk::getContent)
+            .filter(c -> c != null)
+            .collect(java.util.stream.Collectors.joining());
+}
+
+private List<ToolCall> aggregateToolCalls(List<ChatChunk> chunks) {
+    return chunks.stream()
+            .filter(c -> c.getType() == ChatChunk.ChunkType.TOOL_CALL_END)
+            .flatMap(c -> c.getAllToolCalls().stream())
+            .collect(java.util.stream.Collectors.toList());
+}
 
     // ==========================================================
     // 辅助方法
