@@ -96,13 +96,38 @@ public class RerankService {
     public List<RerankResult> rerank(String query,
                                       List<VectorStoreService.SearchResult> candidates,
                                       int topN) {
-        // TODO: 调用百炼 Rerank API
-        //
-        // 1. 构建请求体
-        // 2. 发送 POST 请求
-        // 3. 解析 results
-        // 4. 按 relevance_score 排序
-        // 5. 取 topN 返回
-        throw new UnsupportedOperationException("TODO: 实现百炼 Rerank");
+        List<String> documents = candidates.stream()
+        .map(VectorStoreService.SearchResult::chunkText)
+        .toList();
+        ObjectNode body = mapper.createObjectNode();
+        body.put("model",model);
+        body.put("query",query);
+        ArrayNode docsNode = body.putArray("documents");
+        for(String doc : documents){
+            docsNode.add(doc);
+        }
+        body.put("top_n",topN);
+        try{
+        String responseJson = webClient.post()
+                .uri(RERANK_PATH)
+                .bodyValue(body)
+                .retrieve()
+                .bodyToMono(String.class)
+                .block();
+        JsonNode root = mapper.readTree(responseJson);
+        JsonNode results = root.path("output").path("results");
+        List<RerankResult> ranked = new ArrayList<>();
+        for(JsonNode r : results){
+            int index = r.get("index").asInt();
+            double score = r.get("relevance_score").asDouble();
+            ranked.add(new RerankResult(candidates.get(index), score));
+        }
+        ranked.sort((a,b)->Double.compare(b.relevanceScore(), a.relevanceScore()));
+        return ranked;
+    }
+    catch(Exception e){
+        log.error("rerank失败",e);
+        throw new RuntimeException("百炼Rerank失败"+e.getMessage(),e);
+    }
     }
 }

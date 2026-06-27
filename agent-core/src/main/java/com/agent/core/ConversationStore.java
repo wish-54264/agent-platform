@@ -53,8 +53,20 @@ public class ConversationStore {
      * @return 会话 ID
      */
     public String createConversation(String title, String model) {
-        // TODO: 插入 conversations 表，返回 UUID
-        throw new UnsupportedOperationException("TODO: 创建会话");
+      String id = UUID.randomUUID().toString();
+      String sql = "INSERT INTO conversations(id,title,model) VALUES (?,?,?)";
+      try(Connection conn = dataSource.getConnection();
+        PreparedStatement stmt = conn.prepareStatement(sql)){
+            stmt.setObject(1,UUID.fromString(id));
+            stmt.setString(2,title);
+            stmt.setString(3,model);
+            stmt.executeUpdate();
+        }catch(SQLException e){
+            throw new RuntimeException("对话创建失败",e);
+        }
+        return id;
+        
+     
     }
 
     /**
@@ -72,8 +84,25 @@ public class ConversationStore {
      * @return 消息列表（按时间升序）
      */
     public List<Message> load(String conversationId) {
-        // TODO: 查询 messages 表，反序列化为 Message 列表
-        throw new UnsupportedOperationException("TODO: 加载历史消息");
+      String sql = "SELECT role, content, tool_calls, tool_call_id FROM messages WHERE conversation_id = ? ORDER BY created_at ASC";
+        List<Message> messages = new ArrayList<>();
+        try(Connection conn = dataSource.getConnection();
+                    PreparedStatement stmt = conn.prepareStatement(sql)){
+                        stmt.setObject(1, UUID.fromString(conversationId));
+                        ResultSet rs = stmt.executeQuery();
+                        while(rs.next()){
+                            messages.add(Message.builder()
+                        .role(rs.getString("role"))
+                        .content(rs.getString("content"))
+                        .toolCalls(deserializeToolCalls(rs.getString("tool_calls")))
+                    .toolCallId(rs.getString("tool_call_id"))
+                .build());
+                        }
+                    }
+                    catch(SQLException e){
+                        throw new RuntimeException("会话加载失败",e);
+                    }
+                    return messages;
     }
 
     /**
@@ -95,10 +124,30 @@ public class ConversationStore {
      * @param messages       完整消息列表
      */
     public void save(String conversationId, List<Message> messages) {
-        // TODO: 先清空旧消息，再批量插入新消息
-        throw new UnsupportedOperationException("TODO: 保存历史消息");
-    }
-
+       try(Connection conn = dataSource.getConnection();
+    ) {
+        conn.setAutoCommit(false);
+        try (PreparedStatement del = conn.prepareStatement("DELETE FROM messages WHERE conversation_id = ?")){
+            del.setObject(1, UUID.fromString(conversationId));
+            del.executeUpdate();
+        } 
+        String sql = "INSERT INTO messages (conversation_id,role,content,tool_calls,tool_call_id) VALUES (?,?,?,?,?)";
+        try(PreparedStatement stmt = conn.prepareStatement(sql)){
+            for(Message msg : messages){
+                stmt.setObject(1, UUID.fromString(conversationId));
+                stmt.setString(2,msg.getRole());
+                stmt.setString(3,msg.getContent());
+                stmt.setString(4,serializeToolCalls(msg.getToolCalls()));
+                stmt.setString(5,msg.getToolCallId());
+                stmt.addBatch();
+            }
+            stmt.executeBatch();
+        }
+        conn.commit();
+     }
+     catch (SQLException e) {
+        throw new RuntimeException("保存会话失败",e);
+       }
     /**
      * TODO: 列出所有会话（概要信息）。
      *
@@ -108,9 +157,25 @@ public class ConversationStore {
      * }</pre>
      */
     public List<ConversationSummary> listConversations() {
-        // TODO: 查询 conversations 表
-        throw new UnsupportedOperationException("TODO: 列出会话");
+    String sql = "SELECT id, title, model, created_at, updated_at FROM conversations ORDER BY updated_at DESC";
+    List<ConversationSummary> result = new ArrayList<>();
+    try (Connection conn = dataSource.getConnection();
+         PreparedStatement stmt = conn.prepareStatement(sql);
+         ResultSet rs = stmt.executeQuery()) {
+        while (rs.next()) {
+            result.add(new ConversationSummary(
+                    rs.getString("id"),
+                    rs.getString("title"),
+                    rs.getString("model"),
+                    rs.getTimestamp("created_at").toInstant(),
+                    rs.getTimestamp("updated_at").toInstant()
+            ));
+        }
+    } catch (SQLException e) {
+        throw new RuntimeException("列出会话失败", e);
     }
+    return result;
+}
 
     /**
      * TODO: 删除会话。
@@ -120,8 +185,14 @@ public class ConversationStore {
      * }</pre>
      */
     public void deleteConversation(String conversationId) {
-        // TODO: 删除会话
-        throw new UnsupportedOperationException("TODO: 删除会话");
+        String sql = "DELETE FROM conversations WHERE id = ?";
+    try (Connection conn = dataSource.getConnection();
+         PreparedStatement stmt = conn.prepareStatement(sql)) {
+        stmt.setObject(1, UUID.fromString(conversationId));
+        stmt.executeUpdate();
+    } catch (SQLException e) {
+        throw new RuntimeException("删除会话失败", e);
+    }
     }
 
     // ===== 辅助方法 =====

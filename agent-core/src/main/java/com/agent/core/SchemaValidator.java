@@ -93,7 +93,40 @@ public class SchemaValidator {
         // 1. 检查 required 字段
         // 2. 检查 properties 中每个字段的类型
         // 3. 检查 enum 约束
+        if(schema.has("required")){
+            for(JsonNode requiredField : schema.get("required")){
+                if(!arguments.has(requiredField.asText())){
+                    errors.add("缺少必要参数："+requiredField.asText());
+                }
 
+            }
+        }
+        if(schema.has("properties")&& arguments != null){
+            JsonNode properties = schema.get("properties");
+            var fields = properties.fields();
+            while(fields.hasNext()){
+                var field = fields.next();
+                String fieldName = field.getKey();
+                JsonNode fieldSchema = field.getValue();
+                if(arguments.has(fieldName)){
+                    String expectedType = fieldSchema.has("type")
+                                        ? fieldSchema.get("type").asText():null;
+                    JsonNode value = arguments.get(fieldName);
+                    if("integer".equals(expectedType)&&!value.isInt()){
+                        errors.add(fieldName+"应该为整数");
+                    }
+                    if("string".equals(expectedType)&&!value.isTextual()){
+                        errors.add(fieldName + "应为字符串");
+                    }
+                    if("number".equals(expectedType)&&!value.isNumber()){
+                        errors.add(fieldName +"应为数字");
+                    }
+                    if ("boolean".equals(expectedType) && !value.isBoolean()) {
+                        errors.add(fieldName + " 应为布尔值");
+            }
+                }
+            }
+        }
         if (errors.isEmpty()) {
             return ValidationResult.success();
         }

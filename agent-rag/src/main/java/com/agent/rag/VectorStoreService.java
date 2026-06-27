@@ -88,9 +88,22 @@ public class VectorStoreService {
     public void insertChunks(UUID documentId,
                               List<ChunkSplitter.Chunk> chunks,
                               List<float[]> embeddings) {
-        // TODO: 批量插入向量
-        throw new UnsupportedOperationException("TODO: 批量插入向量");
+       String sql = "INSERT INTO knowledge_chunks(id,document_id,chunk_index,chunk_text,embedding) VALUES (?,?,?,?,?)";
+       try(Connection conn = dataSource.getConnection();
+    PreparedStatement stmt = conn.prepareStatement(sql)) {
+       for (int i = 0; i < chunks.size(); i++) {
+            stmt.setObject(1, UUID.randomUUID());
+            stmt.setObject(2, documentId);
+            stmt.setInt(3, chunks.get(i).index());
+            stmt.setString(4, chunks.get(i).text());
+            stmt.setString(5, embeddingToString(embeddings.get(i)));
+            stmt.addBatch();
+        }
+        stmt.executeBatch();
+    } catch (SQLException e) {
+        throw new RuntimeException("插入向量失败", e);
     }
+       }
 
     /**
      * TODO: 向量相似检索（粗排阶段）。
@@ -121,9 +134,35 @@ public class VectorStoreService {
      * @return 相似检索结果列表（按相似度降序）
      */
     public List<SearchResult> search(float[] queryEmbedding, int topK) {
-        // TODO: 实现向量相似检索
-        throw new UnsupportedOperationException("TODO: 实现向量检索");
-    }
+       String sql = """
+               SELECT id,document_id,chunk_index,chunk_text,
+               1-(embedding<=>?::vector) AS similarity
+               FROM knowledge_chunks
+               ORDER BY embedding <=> ? :: vector
+               LIMIT ?
+               """;
+               List<SearchResult> results = new ArrayList<>();
+               try(Connection conn = dataSource.getConnection();
+                PreparedStatement stmt = conn.prepareStatement(sql)){
+                    String vecStr = embeddingToString(queryEmbedding);
+                    stmt.setString(1, vecStr);
+                    stmt.setString(2,vecStr);
+                    stmt.setInt(3,topK);
+                    ResultSet rs = stmt.executeQuery();
+                    while(rs.next()){
+                        results.add(new SearchResult(UUID.fromString(rs.getString("id")),
+                    UUID.fromString(rs.getString("document_id")),
+                    rs.getInt("chunk_index"),
+                    rs.getString("chunk_text"),
+                    rs.getDouble("similarity")));
+                    }
+                }
+                    catch(SQLException e){
+                        throw new RuntimeException("向量检索失败",e);
+                    }
+                    return results;
+                }
+    
 
     /**
      * TODO: 删除指定文档的所有向量块。
@@ -133,8 +172,14 @@ public class VectorStoreService {
      * }</pre>
      */
     public void deleteByDocumentId(UUID documentId) {
-        // TODO: 删除文档向量
-        throw new UnsupportedOperationException("TODO: 删除文档向量");
+       String sql = "DELETE FROM knowledge_chunks WHERE document_id=?";
+       try(Connection conn = dataSource.getConnection();
+    PreparedStatement stmt = conn.prepareStatement(sql)){
+        stmt.setObject(1, documentId);
+        stmt.executeUpdate();
+    } catch(SQLException e){
+        throw new RuntimeException("删除向量失败",e);
+    }
     }
 
     // ===== 辅助方法 =====
