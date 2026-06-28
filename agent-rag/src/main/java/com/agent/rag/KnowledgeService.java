@@ -66,36 +66,27 @@ public class KnowledgeService {
      * @return 文档 ID
      */
     public UUID uploadDocument(Path filePath, String fileName) {
-        // TODO: 实现文档上传全流程
-        //
-        // UUID documentId = UUID.randomUUID();
-        // try {
-        //     // 1. 解析文档
-        //     DocumentParser.ParseResult parsed = documentParser.parse(filePath);
-        //
-        //     // 2. 切分
-        //     List<ChunkSplitter.Chunk> chunks = chunkSplitter.split(parsed.text());
-        //
-        //     // 3. 向量化
-        //     List<float[]> embeddings = new ArrayList<>();
-        //     for (ChunkSplitter.Chunk chunk : chunks) {
-        //         float[] embedding = llmService.embed(chunk.text());
-        //         embeddings.add(embedding);
-        //     }
-        //
-        //     // 4. 写入向量库
-        //     vectorStore.insertChunks(documentId, chunks, embeddings);
-        //
-        //     // 5. 更新文档状态
-        //     // ...
-        //
-        //     return documentId;
-        // } catch (Exception e) {
-        //     log.error("文档处理失败: {}", fileName, e);
-        //     // 更新文档状态为 FAILED
-        //     throw new RuntimeException("文档处理失败: " + fileName, e);
-        // }
-        throw new UnsupportedOperationException("TODO: 实现文档上传全流程");
+      UUID documentId = UUID.randomUUID();
+      try {
+        //tika解析文档
+        DocumentParser.ParseResult parsed = documentParser.parse(filePath);
+        log.info("文档解析完成: {}, 方式: {}, 字数: {}", fileName, parsed.method(), parsed.text().length());
+        //文档切块
+       List<ChunkSplitter.Chunk> chunks = chunkSplitter.split(parsed.text());
+       log.info("文档切块完成: {}, 块数: {}", fileName, chunks.size());
+       //文本向量化
+       List<float[]> embeddings = new ArrayList<>();
+       for(ChunkSplitter.Chunk chunk : chunks){
+        embeddings.add(llmService.embed(chunk.text()));
+       }
+       //存入pgvector
+       vectorStore.insertChunks(documentId, chunks, embeddings);
+       log.info("文档入库完成： {}", fileName);
+       return documentId;
+      } catch (Exception e) {
+       log.error("文档处理失败: {}", fileName, e);
+    throw new RuntimeException("文档处理失败: " + fileName, e);
+      }
     }
 
     /**
@@ -124,26 +115,19 @@ public class KnowledgeService {
      * @return 格式化后的参考资料文本
      */
     public String search(String query, int topK) {
-        // TODO: 实现两阶段检索
-        //
-        // 1. 向量化查询
-        // float[] queryEmbedding = llmService.embed(query);
-        //
-        // 2. 粗排 top-20
-        // List<VectorStoreService.SearchResult> candidates = vectorStore.search(queryEmbedding, 20);
-        //
-        // 3. 精排 top-K
-        // List<RerankService.RerankResult> reranked = rerankService.rerank(query, candidates, topK);
-        //
-        // 4. 格式化为参考资料文本
-        // StringBuilder sb = new StringBuilder("参考资料：\n");
-        // for (int i = 0; i < reranked.size(); i++) {
-        //     sb.append("---\n");
-        //     sb.append("[来源").append(i + 1).append("] ");
-        //     sb.append(reranked.get(i).chunk().chunkText());
-        //     sb.append("\n");
-        // }
-        // return sb.toString();
-        throw new UnsupportedOperationException("TODO: 实现知识库检索");
+      //bi-encoder
+      float[] queryEmbedding= llmService.embed(query);
+      List<VectorStoreService.SearchResult> candidates = vectorStore.search(queryEmbedding, 20);
+      if(candidates.isEmpty()){
+        return "未找到！";
+      }
+      List<RerankService.RerankResult> reranked = rerankService.rerank(query, candidates, Math.min(topK,candidates.size()));
+      StringBuilder sb = new StringBuilder("请基于以下资料回答问题：\n\n");
+      for(int i =0; i< reranked.size();i++){
+        sb.append("---\n");
+     sb.append("[来源").append(i + 1).append("] ").append(reranked.get(i).chunk().chunkText()).append("\n");
     }
-}
+    return sb.toString();
+      }
+    }
+

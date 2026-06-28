@@ -3,8 +3,14 @@ package com.agent.rag;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.web.reactive.function.client.WebClient;
 
-import java.nio.file.Path;
+import com.fasterxml.jackson.annotation.JsonAlias;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 
+import java.nio.file.Files;
+import java.nio.file.Path;
+import com.fasterxml.jackson.databind.node.ObjectNode;
+import com.fasterxml.jackson.databind.node.ArrayNode;
 /**
  * 阿里云百炼 OCR 服务 — 处理 PDF 扫描件/复印件。
  * <p>
@@ -25,6 +31,7 @@ public class OcrService {
 
     private final WebClient webClient;
     private final String apiKey;
+
 
     private static final String BASE_URL = "https://dashscope.aliyuncs.com";
     private static final String OCR_PATH = "/api/v1/services/aigc/image2text/image2text";
@@ -76,7 +83,38 @@ public class OcrService {
      * @return 识别出的文本内容
      */
     public String recognize(Path filePath) {
-        // TODO: 调用百炼 OCR 识别扫描件
-        throw new UnsupportedOperationException("TODO: 实现百炼 OCR 调用");
+       try {
+        // 1. 读取文件转 Base64
+        byte[] fileBytes = Files.readAllBytes(filePath);
+        String base64 = java.util.Base64.getEncoder().encodeToString(fileBytes);
+
+        // 2. 构建请求
+        ObjectNode body = new ObjectMapper().createObjectNode();
+        body.put("model", "qwen-vl-ocr");
+        ObjectNode input = body.putObject("input");
+        ArrayNode messages = input.putArray("messages");
+        ObjectNode msg = messages.addObject();
+        msg.put("role", "user");
+        ArrayNode content = msg.putArray("content");
+        ObjectNode imgPart = content.addObject();
+        imgPart.put("image", "data:application/pdf;base64," + base64);
+
+        // 3. POST 到百炼
+        String responseJson = webClient.post()
+                .uri(OCR_PATH)
+                .bodyValue(body)
+                .retrieve()
+                .bodyToMono(String.class)
+                .block();
+
+        // 4. 解析返回的文字
+        JsonNode root = new ObjectMapper().readTree(responseJson);
+        return root.path("output").path("choices").get(0)
+                .path("message").path("content").asText();
+
+    } catch (Exception e) {
+        log.error("OCR 识别失败", e);
+        throw new RuntimeException("百炼 OCR 失败: " + e.getMessage(), e);
     }
+}
 }

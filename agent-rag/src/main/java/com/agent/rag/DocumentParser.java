@@ -73,11 +73,22 @@ public class DocumentParser {
      * @return 解析结果（纯文本 + 解析方式）
      */
     public ParseResult parse(Path filePath) throws IOException, TikaException {
-        // TODO: 实现文档解析
-        // 1. 检测 MIME 类型
-        // 2. Tika 提取文本
-        // 3. 判断是否需要 OCR
-        // 4. 返回 ParseResult
-        throw new UnsupportedOperationException("TODO: 实现文档解析");
+       String mediaType = tika.detect(filePath);
+       log.info("解析文档: {}, 类型: {}", filePath.getFileName(), mediaType);
+       //tika提取文本
+       String Text;
+       try(InputStream is = Files.newInputStream(filePath)){
+        Text = tika.parseToString(is);
+       }
+       //判断是否使用OCR
+       if(Text == null || Text.trim().length()<MIN_TEXT_LENGTH_FOR_OCR){
+        if("application/pdf".equals(mediaType)){
+            log.info("TIka提取文字较少<{}字符,回退ocr:{}",Text!=null?Text.length():0,filePath.getFileName());
+            String ocrText = ocrService.recognize(filePath);
+            return new ParseResult(ocrText, "ocr", mediaType);
+        }
+        log.warn("文档文字较少,非PDF格式不触发ocr:{}",filePath.getFileName());
+       }
+       return new ParseResult(Text != null ? Text : "", "tika", mediaType);
     }
 }
